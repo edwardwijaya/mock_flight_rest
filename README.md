@@ -1,7 +1,15 @@
-REST-tutorial
-=============
+Aggregating On-time Flight Data
+================================
+This is an implementation of RESTless API using Flask framework for a job application in Skyscanner.
 
-Files for Skyscanner Coding Exercise to retrieve Flights data for a RESTless server written in Python and  a web client written in Javascript:
+Based on
+--------
+
+- Python
+- Flask Framework
+
+Guide
+-----
 
 - [Designing a RESTful API with Python and Flask](http://blog.miguelgrinberg.com/post/designing-a-restful-api-with-python-and-flask)
 - [Writing a Javascript REST client](http://blog.miguelgrinberg.com/post/writing-a-javascript-rest-client)
