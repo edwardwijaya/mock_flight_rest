@@ -2,11 +2,25 @@ Aggregating On-time Flight Data
 ================================
 This is an implementation of RESTless API using Flask framework for a job application in Skyscanner.
 
+Question:
+Based on the JSON data(ontime_data_test.json). Suppose you are building a backend for a flight delay visualization application. Your goal is to build an API exposing the attached information to answer the following questions:
+  1.	What is the expected arrival delay when flying from a specific airport grouped by any or all of the following:
+    a.	Arrival Airport?
+    b.	Carrier?
+    c.	Distance (segmented into ranges as appropriate)?
+    d.	Day of the Week?
+  2.	What is the likelihood of a flight being cancelled when flying from a specific airport grouped by any or all of the following:
+    a.	Arrival Airport?
+    b.	Carrier?
+    c.	Distance (segmented into ranges as appropriate)?
+    d.	Day of the Week?
+
+
 Based on
 --------
 
-- Python
-- Flask Framework
+- [Python](https://www.python.org/)
+- [Flask Framework](http://flask.pocoo.org/)
 
 Guide
 -----
