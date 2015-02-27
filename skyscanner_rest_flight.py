@@ -1,26 +1,68 @@
 #!flask/bin/python
-import json
-from collections import defaultdict
-from urlparse import urlparse, parse_qsl
-from flask import Flask, jsonify, abort, request, make_response
+# Copyright (C) 2015 Edward Wijaya
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+# BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+# ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""This is a REST API server that runs for Skyscanner On Time Flight Data
+
+Available API to use are :
+- GET / (for the list of flights)
+- GET /arrival_delay/origin/<origin>
+- GET /arrival_delay/origin/<origin>?groupby=<group>
+- GET /cancellation_pct/origin/<origin>
+- GET /cancellation_pct/origin/<origin>?groupby=<group_key>
+
+The source code PEP8 compliant.
 
 """
-This is a REST server that runs for Skyscanner On Time Flight Data
-"""
+
+import json
+from collections import defaultdict
+from urlparse import urlparse
+from urlparse import parse_qsl
+from flask import Flask
+from flask import jsonify
+from flask import abort
+from flask import request
+from flask import make_response
+
 app = Flask(__name__, static_url_path="")
-json_data = open('ontime_data_test.json')
+json_data = open('data/ontime_data_test.json')
 flights_data = json.load(json_data)
-distance_range = 50  # in miles
-allowed_group = {'dest': "Destination", 'unique_carrier': "Flight_Carrier",
-                 'day_of_week': "Day_of_the_Week", 'distance': "Distance"}
+
+distance_range = 100  # segmentation every distance range
+allowed_group = {'dest': "Destination",
+                 'unique_carrier': "Flight_Carrier",
+                 'day_of_week': "Day_of_the_Week",
+                 'distance': "Distance"}
 
 @app.errorhandler(400)
 def bad_request(error):
     return make_response(jsonify({'error': 'Bad request'}), 400)
 
+
 @app.errorhandler(404)
 def not_found(error):
     return make_response(jsonify({'error': 'Not found'}), 404)
+
 
 def make_public_flight(flight):
     new_flight = {}
@@ -28,49 +70,28 @@ def make_public_flight(flight):
         new_flight[field] = flight[field]
     return new_flight
 
-def make_arrival_delay(flight, group_key):
-    new_arrival_delay = {}
-    for field in flight:
-        """
-        Field to display according to group key
-        """
-        if field == 'arr_delay':
-            time_of_arrival = int(flight[field]) if flight[field] else None
-            if time_of_arrival is None:
-                new_arrival_delay['Time_of_arrival'] = 'NaN'
-            elif time_of_arrival < 0:
-                new_arrival_delay['Time_of_arrival'] = str(abs(time_of_arrival)) + ' minute(s) late'
-            elif time_of_arrival > 0:
-                new_arrival_delay['Time_of_arrival'] = str(time_of_arrival) + ' minute(s) early'
-            elif time_of_arrival == 0:
-                new_arrival_delay['Time_of_arrival'] = 'On_Time'
-
-        if field == 'fl_date':
-            new_arrival_delay['Date_of_flight'] = str(flight[field])
-        if field == 'distance' and group_key == 'distance':
-            new_arrival_delay['Distance'] = str(flight[field]) + " miles"
-    return new_arrival_delay
-
-def make_cancellation_pct(flight):
-    cancellations_pct = {}
-    if str(flight['cancelled']) == "1":
-        for field in flight:
-            if field == 'cancelled':
-                cancelled = bool(int(flight[field]))
-                cancellations_pct['Cancelled'] = cancelled
-            else:
-                cancellations_pct[field] = flight[field]
-
-        return cancellations_pct
-    else:
-        return None
 
 @app.route('/', methods=['GET'])
 def get_flights():
+    """
+    This returns a JSON formatted list of flights data with each attribute.
+    :return: List of flights in JSON format
+    """
     return jsonify({'flights_data': [make_public_flight(flight) for flight in flights_data]})
+
 
 @app.route('/arrival_delay/origin/<origin>', methods=['GET'])
 def get_arrival_delay(origin):
+    """
+    Shows the summary of time delay of flights flying from an <origin> airport.
+    Time of delay returned in "<mininum> - <maximum> minute(s) late" format.
+    Unit of time used are minutes.
+    Group can be used to categorize the arrival delay.
+
+    :param origin: Origin of airport to check the arrival delay
+    :return: Overall arrival delay in JSON format
+    """
+
     # Parse using urlparse to retrieve query string for GROUP separation [1]
     # [1] : https://docs.python.org/2/library/urlparse.html#urlparse.urlparse
     query_string = parse_qsl(urlparse(request.url).query)
@@ -86,32 +107,50 @@ def get_arrival_delay(origin):
             if query_value in allowed_group_keys:  # matched the group allowed
                 group_keys.add(query_value)
 
-    flights = []
+    # Make a list of flights originated from <origin>
+    flights_from_origin = []
     for flight in flights_data:
-        if flight['origin'].lower() == origin.lower():
-            flights.append(flight)
-    if len(flights) == 0:
+        if flight['origin'] == origin:
+            flights_from_origin.append(flight)
+    if len(flights_from_origin) == 0:
         abort(404)
-    if len(group_keys) == 0:
-        abort(400)
 
+    # GET /arrival_delay/origin/<origin> - No query parameters
     if not query_string:
+        overall_delay = []
+        for flight in flights_from_origin:
+            time_of_arrival = int(flight['arr_delay']) if flight['arr_delay'] else None
+            if time_of_arrival is not None and time_of_arrival < 0:
+                overall_delay.append(time_of_arrival)
+
+        earliest_delay = str(abs(max(overall_delay)))
+        longest_delay = str(abs(min(overall_delay)))
         return jsonify(
-            {'Flying_from': str(origin),
-             'Output - Time_of_Arrival': [make_arrival_delay(flight, None) for flight in flights]})
+                {'Flying_from': str(origin),
+                 'Output - Expected time of Arrival Delay': earliest_delay + " - " + longest_delay + " minute(s) late"})
+
+    # GET /arrival_delay/origin/<origin>?groupby=<group_key>
     else:
         flights_dictionaries = {'Flying_from': str(origin)}
 
-        # Iterate from list of queries
-        # [1] Group queries
+        # Iterate from list of group query
         for query_key in group_keys:
-            flights_dictionaries['Output - Time_of_Arrival - Group: ' + allowed_group.get(query_key)] \
-                = group_delay(query_key, flights)
+            flights_dictionaries['Output - Expected time of Arrival Delay - Group: ' + allowed_group.get(query_key)] \
+                = group_delay(query_key, flights_from_origin)
 
         return jsonify(flights_dictionaries)
 
 @app.route('/cancellation_pct/origin/<origin>', methods=['GET'])
 def get_cancellation_pct(origin):
+    """
+    Shows the percentage of cancelled flights flying from an <origin> airport.
+    Cancelled flights are calculated from no. of cancelled flights / the total of flights.
+    Returns a percentage of flight cancellation possibility.
+    Group can be used to categorize the cancelled flights.
+
+    :param origin: Origin of airport to check the arrival delay
+    :return: Percentage of cancelled flights in JSON format
+    """
     # Parse using urlparse to retrieve query string for GROUP separation [1]
     # [1] : https://docs.python.org/2/library/urlparse.html#urlparse.urlparse
     query_string = parse_qsl(urlparse(request.url).query)
@@ -127,91 +166,129 @@ def get_cancellation_pct(origin):
             if query_value in allowed_group_keys:  # matched the group allowed
                 group_keys.add(query_value)
 
+    # Make a list of flights originated from <origin>
     flights = []
     for flight in flights_data:
         if flight['origin'].lower() == origin.lower():
             flights.append(flight)
     if len(flights) == 0:
         abort(404)
-    if len(group_keys) == 0:
-        abort(400)
 
+    # GET /cancellation_pct/origin/<origin> - No query parameters
     if not query_string:
         flight_dictionaries = {'Flying_from': str(origin)}
-        flight_list = []
-        for flight in flights:
-            flight_data = make_cancellation_pct(flight)
-            if flight_data is not None:
-                flight_list.append(flight_data)
+        cancellations_amt = 0.0
 
-            flight_dictionaries['Output - Cancelled Flights List'] = flight_list
+        for flight in flights:
+            for field in flight:
+                if field == "cancelled":
+                    if int(flight[field]) == 1:
+                        cancellations_amt += 1
+
+        cancellations_pct = float(cancellations_amt) / len(flights)
+        flight_dictionaries['Output - Cancelled Possibility'] = str(("%.2f" % round(cancellations_pct,2)))
         return jsonify(flight_dictionaries)
+
+    # GET /cancellation_pct/origin/<origin>?groupby=<group_key>
     else:
         flight_dictionaries = {'Flying_from': str(origin)}
 
-        # Iterate from list of queries
-        # [1] Group queries
+        # Iterate from list of group query
         for group_key in group_keys:
             flight_dictionaries['Output - Cancellation Possibility - Group: ' + allowed_group.get(group_key)] = \
                 group_cancel(group_key, flights)
 
         return jsonify(flight_dictionaries)
 
+
 def group_delay(group_key, flights):
+    """
+    Group the arrival delay flights based on keys.
+    :param group_key: Group key to use for categorization.
+    :param flights: List of flights matching from an origin airport.
+    :return: Dictionary containing the list of flights grouped.
+    """
     dict_of_group_flights = defaultdict(list)
 
     if group_key == 'distance':
-        global distance_range
-        distance_set = set()    # filter duplicate value
+        global distance_range   # segmentation every distance range
+
+        # Remove duplicate value & Get the maximum distance
+        distance_set = set()
         for flight in flights:
             distance_set.add(int(flight['distance']))
 
         distance_list = sorted(list(distance_set))
         max_distance = max(distance_list)
 
-        for flight in flights:
-            distance_limit = 0
-            while distance_limit <= max_distance:
-                if int(flight[group_key]) in range(distance_limit, distance_limit + distance_range):
-                    distance_ranges = str(distance_limit) + " - " + str(distance_limit + distance_range)
-                    dict_of_group_flights[distance_ranges].append(make_arrival_delay(flight, group_key))
-                distance_limit += distance_range
-    elif group_key == 'day_of_week':
-        for flight in flights:
-            name_of_day = get_day_name(int(flight[group_key]))
-            dict_of_group_flights[name_of_day].append(make_arrival_delay(flight, group_key))
-
-    else:
-        for flight in flights:
-            dict_of_group_flights[flight[group_key]].append(make_arrival_delay(flight, group_key))
-
-    return dict_of_group_flights
-
-def group_cancel(group_key, flights):
-    dict_of_group_flights = defaultdict(list)
-
-    if group_key == 'distance':
-        global distance_range
-        distance_set = set()    # filter duplicate value
-        for flight in flights:
-            distance_set.add(int(flight['distance']))
-
-        distance_list = sorted(list(distance_set))
-        max_distance = max(distance_list)
-
+        # Segment into Ranges
         temp_dict = defaultdict(list)
         for flight in flights:
             distance_limit = 0
             while distance_limit <= max_distance:
                 if int(flight[group_key]) in range(distance_limit, distance_limit + distance_range):
-                    distance_ranges = str(distance_limit) + " - " + str(distance_limit + distance_range)
-                    temp_dict[distance_ranges].append(int(flight['cancelled']))
+                    time_of_arrival = int(flight['arr_delay']) if flight['arr_delay'] else None
+                    if time_of_arrival is not None and time_of_arrival < 0:
+                        distance_ranges = str(distance_limit) + " - " + str(distance_limit + distance_range) + " miles"
+                        temp_dict[distance_ranges].append(time_of_arrival)
                 distance_limit += distance_range
 
-        for distance_ranges, cancellation_list in temp_dict.iteritems():
-            cancellation_amount = list(cancellation_list).count(1)
-            cancellation_percentage = float(cancellation_amount) / len(cancellation_list)
-            dict_of_group_flights[distance_ranges].append(cancellation_percentage)
+    elif group_key == 'day_of_week':
+        temp_dict = defaultdict(list)
+        for flight in flights:
+            time_of_arrival = int(flight['arr_delay']) if flight['arr_delay'] else None
+            if time_of_arrival is not None and time_of_arrival < 0:
+                name_of_day = get_day_name(int(flight[group_key]))
+                temp_dict[name_of_day].append(time_of_arrival)
+
+    else:
+        temp_dict = defaultdict(list)
+        for flight in flights:
+            time_of_arrival = int(flight['arr_delay']) if flight['arr_delay'] else None
+            if time_of_arrival is not None and time_of_arrival < 0:
+                temp_dict[flight[group_key]].append(time_of_arrival)
+
+    # Overall Arrival Delay in "<minimum> - <maximum> minute(s) late" format
+    for key, delay_list in temp_dict.iteritems():
+        fastest_delay = str(abs(max(delay_list)))
+        longest_delay = str(abs(min(delay_list)))
+        if fastest_delay == longest_delay:
+            dict_of_group_flights[key].append(fastest_delay + " minute(s) late")
+        else:
+            dict_of_group_flights[key].append(fastest_delay + " - " + longest_delay + " minute(s) late")
+
+    return dict_of_group_flights
+
+
+def group_cancel(group_key, flights):
+    """
+    Group the cancelled flights based on keys.
+    :param group_key: Group key to use for categorization.
+    :param flights: List of flights matching from an origin airport.
+    :return: Dictionary containing the list of flights grouped.
+    """
+    dict_of_group_flights = defaultdict(list)
+
+    if group_key == 'distance':
+        global distance_range   # segmentation every distance range
+
+        # Remove duplicate value & Get the maximum distance
+        distance_set = set()
+        for flight in flights:
+            distance_set.add(int(flight['distance']))
+
+        distance_list = sorted(list(distance_set))
+        max_distance = max(distance_list)
+
+        # Segment into Ranges
+        temp_dict = defaultdict(list)
+        for flight in flights:
+            distance_limit = 0
+            while distance_limit <= max_distance:
+                if int(flight[group_key]) in range(distance_limit, distance_limit + distance_range):
+                    distance_ranges = str(distance_limit) + " - " + str(distance_limit + distance_range) + " miles"
+                    temp_dict[distance_ranges].append(int(flight['cancelled']))
+                distance_limit += distance_range
 
     elif group_key == 'day_of_week':
         temp_dict = defaultdict(list)
@@ -219,40 +296,41 @@ def group_cancel(group_key, flights):
             name_of_day = get_day_name(int(flight[group_key]))
             temp_dict[name_of_day].append(int(flight['cancelled']))
 
-        for name_of_day, cancellation_list in temp_dict.iteritems():
-            cancellation_amount = list(cancellation_list).count(1)
-            cancellation_percentage = float(cancellation_amount) / len(cancellation_list)
-            dict_of_group_flights[name_of_day].append(cancellation_percentage)
-
     else:
         temp_dict = defaultdict(list)
         for flight in flights:
             temp_dict[flight[group_key]].append(int(flight['cancelled']))
 
-        for key, cancellation_list in temp_dict.iteritems():
-            cancellation_amount = list(cancellation_list).count(1)
-            cancellation_percentage = float(cancellation_amount) / len(cancellation_list)
-            dict_of_group_flights[key].append(cancellation_percentage)
+    # Calculate the cancellation percentage
+    for key, cancellation_list in temp_dict.iteritems():
+        cancellation_amount = list(cancellation_list).count(1)
+        cancellation_percentage = float(cancellation_amount) / len(cancellation_list)
+        dict_of_group_flights[key].append(str(("%.2f" % round(cancellation_percentage, 2))))
 
     return dict_of_group_flights
 
 def get_day_name(day_no):
-        if day_no == 1:
-            return "Monday"
-        elif day_no == 2:
-            return "Tuesday"
-        elif day_no == 3:
-            return "Wednesday"
-        elif day_no == 4:
-            return "Thursday"
-        elif day_no == 5:
-            return "Thursday"
-        elif day_no == 6:
-            return "Saturday"
-        elif day_no == 7:
-            return "Sunday"
-        else:
-            return "NOT_RECOGNIZED"
+    """
+    Returns the full name of the day in the week.
+    :param day_no: The number of day to convert.
+    :return: Full name of day in the week.
+    """
+    if day_no == 1:
+        return "Monday"
+    elif day_no == 2:
+        return "Tuesday"
+    elif day_no == 3:
+        return "Wednesday"
+    elif day_no == 4:
+        return "Thursday"
+    elif day_no == 5:
+        return "Thursday"
+    elif day_no == 6:
+        return "Saturday"
+    elif day_no == 7:
+        return "Sunday"
+
+    return "NOT_RECOGNIZED"
+
 if __name__ == '__main__':
     app.run(debug=True)
-	
