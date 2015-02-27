@@ -34,7 +34,7 @@ Setup
 
 - Install Python 2.7 and git.
 - Run `setup.sh` (Linux, OS X, Cygwin) or `setup.bat` (Windows)
-- Run `./skyscanner_rest_flightr.py` to start the server (on Windows use `flask\Scripts\python skyscanner_rest_flight.py` instead)
+- Run `./skyscanner_rest_flight.py` to start the server (on Windows use `flask\Scripts\python skyscanner_rest_flight.py` instead)
 - Open `http://localhost:5000/index.html` on your web browser to run the client
 
 GET http://localhost:5000/cancellation_pct/origin/LAX				--	List down all cancelled flights from <origin>
@@ -48,3 +48,12 @@ GET http://localhost:5000/arrival_delay/origin/LAX??groupby=x 		--	List down all
 E.g. (allowed group is [dest, distance, day_of_week, unique_carrier])
 -	http://localhost:5000/arrival_delay/origin/LAX?groupby=distance
 -	http://localhost:5000/arrival_delay/origin/LAX?groupby=dest&groupby=distance
+
+Feedback
+--------
+- Good implementation with concise result.
+- Were asked of the O(n) of the distance group mapping which is O(n) which can be improved to O(1) by using modulo operation
+- Implementation using REST framework - Flask is a good choice
+- PEP8 certified which is good, but overlooked.
+
+The interviews was done and noted the good implementation, we went through with the discussion over technical interviews however the result came back with "technical experience does not fit well required for the role and product that are working on".
